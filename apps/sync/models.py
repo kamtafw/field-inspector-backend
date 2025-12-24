@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.auth import get_user_model
-from inspections.models import Inspection
+from apps.inspections.models import Inspection
 
 User = get_user_model()
 

@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from .models import Inspection, InspectionTemplate
 from .serializers import InspectionSerializer, CreateInspectionSerializer, UpdateInspectionSerializer, InspectionTemplateSerializer
-from sync.models import SyncOperation, ConflictRecord
+from apps.sync.models import SyncOperation, ConflictRecord
 
 
 class InspectionTemplateViewSet(viewsets.ModelViewSet):
