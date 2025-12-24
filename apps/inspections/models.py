@@ -39,8 +39,6 @@ class Inspection(models.Model):
     approved_by = models.ForeignKey(User, null=True, blank=True, related_name="approved_inspections", on_delete=models.SET_NULL)
     approved_at = models.DateTimeField(null=True, blank=True)
     approval_notes = models.TextField(null=True, blank=True)
-    rejected_at = models.DateTimeField(null=True, blank=True)
-    rejection_notes = models.TextField(null=True, blank=True)
 
     # timestamps
     created_at = models.DateTimeField(auto_now_add=True)

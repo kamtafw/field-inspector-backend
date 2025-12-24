@@ -70,17 +70,145 @@ class InspectionViewSet(viewsets.ModelViewSet):
                 return Response(sync_op.result, status=status.HTTP_200_OK)
             except SyncOperation.DoesNotExist:
                 pass
-        
-        # validate & create
 
-        # create inspection
-        inspection = Inspection.objects.create(
-            id=request.data["id"],
-            template=request.data["template"],
-            inspector=request.user,
-            facility_name=request.data["facility_name"],
-            facility_address=request.data["facility_address"],
-            responses=request.data["responses"],
-            status=request.data["status"],
-            version=request.data["version"],
-        )
+        # validate & create
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # set inspector from authenticated user and create inspection
+        inspection = serializer.save(inspector=request.user)
+
+        # record operation for idempotency
+        if idempotency_key:
+            result_data = InspectionSerializer(inspection).data
+            SyncOperation.objects.create(
+                idempotency_key=idempotency_key,
+                operation_type="CREATE_INSPECTION",
+                entity_id=inspection.id,
+                user=request.user,
+                result=result_data,
+            )
+
+        # return inspection
+        response_serializer = InspectionSerializer(inspection)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    @transaction.atomic
+    def update(self, request, pk=None):
+        """
+        Update inspection with optimistic locking
+
+        returns:
+        - 200 OK (if successful)
+        - 409 Conflict (if version mismatch)
+        """
+        idempotency_key = request.headers.get("Idempotency-Key")
+
+        # check idempotency
+        if idempotency_key:
+            try:
+                sync_op = SyncOperation.objects.get(idempotency_key=idempotency_key)
+                # already processed; return cached result
+                return Response(sync_op.result, status=status.HTTP_200_OK)
+            except SyncOperation.DoesNotExist:
+                pass
+
+        inspection = self.get_object()
+        client_version = request.data.get("version")
+
+        # CRITICAL: check version for conflicts before updating
+        if inspection.version != client_version:
+            server_data = InspectionSerializer(inspection).data
+
+            # record conflict for audit
+            ConflictRecord.objects.create(
+                inspection=inspection,
+                client_version_number=client_version,
+                server_version_number=inspection.version,
+                server_data=server_data,
+                client_data=request.data,
+            )
+
+            return Response(
+                {
+                    "error": "conflict",
+                    "message": "Another user has updated this inspection while you were editing it.",
+                    "client_version": client_version,
+                    "server_version": inspection.version,
+                    "server_data": server_data,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # no conflict; update inspection
+        serializer = self.get_serializer(inspection, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        # increment version
+        inspection.increment_version()
+
+        # handle status change
+        if request.data.get("status") == "submitted" and inspection.status != "draft":
+            inspection.submitted_at = timezone.now()
+
+        inspection.save()
+
+        # record operation for idempotency
+        if idempotency_key:
+            result_data = InspectionSerializer(inspection).data
+            SyncOperation.objects.create(
+                idempotency_key=idempotency_key,
+                operation_type="UPDATE_INSPECTION",
+                entity_id=inspection.id,
+                user=request.user,
+                result=result_data,
+            )
+
+        response_serializer = InspectionSerializer(inspection)
+        return Response(response_serializer.data)
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        """
+        Approve inspection: Manager approval endpoint.
+        Only accessible to managers (add permission check in production).
+        """
+        inspection = self.get_object()
+
+        if inspection.status != "submitted":
+            return Response({"error": "Only submitted inspections can be approved."}, status=status.HTTP_400_BAD_REQUEST)
+
+        inspection.status = "approved"
+        inspection.approved_by = request.user
+        inspection.approved_at = timezone.now()
+        inspection.approval_notes = request.data.get("notes", "")
+        inspection.increment_version()
+        inspection.save()
+
+        # TODO: send push notification to inspector
+
+        serializer = InspectionSerializer(inspection)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        """
+        Reject inspection: Manager rejection endpoint.
+        Only accessible to managers (add permission check in production).
+        """
+        inspection = self.get_object()
+
+        if inspection.status != "submitted":
+            return Response({"error": "Only submitted inspections can be rejected."}, status=status.HTTP_400_BAD_REQUEST)
+
+        inspection.status = "rejected"
+        inspection.approved_by = request.user
+        inspection.approved_at = timezone.now()
+        inspection.approval_notes = request.data.get("notes", "")
+        inspection.increment_version()
+        inspection.save()
+
+        # TODO: send push notification to inspector
+
+        serializer = InspectionSerializer(inspection)
+        return Response(serializer.data)
