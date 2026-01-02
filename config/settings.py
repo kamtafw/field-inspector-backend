@@ -11,7 +11,7 @@ SECRET_KEY = config("DJANGO_SECRET_KEY", default=get_random_secret_key(), cast=s
 
 DEBUG = config("DJANGO_DEBUG", default=True, cast=bool)
 
-AUTH_USER_MODEL = "apps.authentication.User"
+AUTH_USER_MODEL = "authentication.User"
 
 ALLOWED_HOSTS = [
     "localhost",

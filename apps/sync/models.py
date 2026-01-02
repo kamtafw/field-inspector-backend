@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth import get_user_model
 from apps.inspections.models import Inspection
+import uuid
 
 User = get_user_model()
 
@@ -40,10 +41,10 @@ class ConflictRecord(models.Model):
     inspection = models.ForeignKey(Inspection, on_delete=models.CASCADE, related_name="conflicts")
 
     # snapshot of both versions at conflict time
-    client_version_number = models.IntegerField()
-    server_version_number = models.IntegerField()
-    client_data = models.JSONField(help_text="Client's version of data")
-    server_data = models.JSONField(help_text="Server's version of data")
+    client_version_number = models.IntegerField(null=True, blank=True)
+    server_version_number = models.IntegerField(null=True, blank=True)
+    client_data = models.JSONField(null=True, blank=True, help_text="Client's version of data")
+    server_data = models.JSONField(null=True, blank=True, help_text="Server's version of data")
 
     # resolution tracking
     resolved = models.BooleanField(default=False)

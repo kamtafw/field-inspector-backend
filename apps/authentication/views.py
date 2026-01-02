@@ -20,14 +20,11 @@ def login_view(request):
     if not email or not password:
         return Response({"error": "Email and password are required."}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Django default User uses 'username'; map email to username
-    # TODO: use custom User model with email as primary
-    user = authenticate(request, username=email, password=password)
+    user = authenticate(request, email=email, password=password)
 
     if not user:
         return Response({"error": "Invalid credentials."}, status=status.HTTP_401_UNAUTHORIZED)
 
-    # generate tokens
     refresh = RefreshToken.for_user(user)
     return Response(
         {

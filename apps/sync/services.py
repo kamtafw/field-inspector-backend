@@ -3,6 +3,49 @@ from .models import SyncOperation
 from apps.inspections.models import Inspection
 
 
+class IdempotencyService:
+    """
+    Service for checking idempotency of sync operations
+    Prevents duplicate processing of the same operation (retried requests)
+    """
+
+    @staticmethod
+    def get_result(idempotency_key: str):
+        """
+        Check if an idempotency key has already been processed
+        Returns cached result if available
+        """
+
+        try:
+            operation = SyncOperation.objects.get(idempotency_key=idempotency_key)
+            return operation.result
+        except SyncOperation.DoesNotExist:
+            return None
+
+    @staticmethod
+    @transaction.atomic
+    def set_result(idempotency_key: str, operation_type: str, entity_id: str, user, result: dict):
+        """
+        Cache the result of an idempotency key
+        """
+
+        SyncOperation.objects.create(
+            idempotency_key=idempotency_key,
+            operation_type=operation_type,
+            entity_id=entity_id,
+            user=user,
+            result=result,
+        )
+
+    @staticmethod
+    def exists(idempotency_key: str):
+        """
+        Check if an operation exists
+        """
+
+        return SyncOperation.objects.filter(idempotency_key=idempotency_key).exists()
+
+
 class BatchSyncService:
     """
     Service for processing batch sync operations
@@ -38,6 +81,8 @@ class BatchSyncService:
         """
 
         # check idempotency
+        if IdempotencyService.exists(idempotency_key):
+            return IdempotencyService.get_result(idempotency_key)
 
         if operation_type == "CREATE_INSPECTION":
             from apps.inspections.serializers import CreateInspectionSerializer
@@ -47,6 +92,13 @@ class BatchSyncService:
             inspection = serializer.save(inspector=user)
 
             # record idempotency
+            IdempotencyService.record(
+                idempotency_key=idempotency_key,
+                operation_type=operation_type,
+                entity_id=str(inspection.id),
+                user=user,
+                result={"id": str(inspection.id)},
+            )
 
             return {"id": str(inspection.id)}
         elif operation_type == "UPDATE_INSPECTION":
@@ -57,6 +109,13 @@ class BatchSyncService:
             inspection = serializer.save()
 
             # record idempotency
+            IdempotencyService.record(
+                idempotency_key=idempotency_key,
+                operation_type=operation_type,
+                entity_id=str(inspection.id),
+                user=user,
+                result={"id": str(inspection.id)},
+            )
 
             return {"id": str(inspection.id)}
         else:

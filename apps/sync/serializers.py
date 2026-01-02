@@ -1,12 +1,12 @@
 from rest_framework import serializers
 from .models import SyncOperation, ConflictRecord
 from apps.inspections.models import Inspection
-from apps.inspection.serializers import InspectionSerializer
+from apps.inspections.serializers import InspectionSerializer
 
 
 class SyncOperationSerializer(serializers.ModelSerializer):
     """
-    Serializer for sync operation records
+    Serializer for sync operation records (listing)
     """
 
     class Meta:
@@ -58,7 +58,7 @@ class BatchSyncOperationSerializer(serializers.Serializer):
     Serializer for batch sync operations
     """
 
-    operation_type = serializers.ChoiceField(choices=SyncOperation.OPERATION_TYPE_CHOICES, required=True)
+    operation_type = serializers.ChoiceField(choices=["CREATE_INSPECTION", "UPDATE_INSPECTION"], required=True)
     idempotency_key = serializers.CharField(required=True, max_length=255)
     data = serializers.JSONField(required=True)
 
