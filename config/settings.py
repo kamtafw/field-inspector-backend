@@ -11,6 +11,8 @@ SECRET_KEY = config("DJANGO_SECRET_KEY", default=get_random_secret_key(), cast=s
 
 DEBUG = config("DJANGO_DEBUG", default=True, cast=bool)
 
+AUTH_USER_MODEL = "apps.authentication.User"
+
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
@@ -48,6 +50,7 @@ INSTALLED_APPS = [
     "apps.authentication",
     "apps.inspections",
     "apps.sync",
+    "django_extensions",
 ]
 
 MIDDLEWARE = [
