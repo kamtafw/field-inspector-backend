@@ -1,6 +1,5 @@
 from django.db import transaction
 from .models import SyncOperation
-from apps.inspections.models import Inspection
 
 
 class IdempotencyService:

@@ -10,7 +10,7 @@ class InspectorSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "first_name", "last_name"]
+        fields = ["id", "email", "first_name", "last_name"]
         read_only_fields = fields
 
 
@@ -52,8 +52,6 @@ class InspectionSerializer(serializers.ModelSerializer):
             "approved_by",
             "approved_at",
             "approval_notes",
-            "rejected_at",
-            "rejection_notes",
             "photos",
             "created_at",
             "submitted_at",
@@ -64,7 +62,6 @@ class InspectionSerializer(serializers.ModelSerializer):
             "inspector",
             "approved_by",
             "approved_at",
-            "rejected_at",
             "created_at",
             "updated_at",
         ]

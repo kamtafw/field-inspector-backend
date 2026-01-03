@@ -28,7 +28,7 @@ class ConflictRecordSerializer(serializers.ModelSerializer):
     """
 
     inspection = InspectionSerializer(read_only=True)
-    resolved_by_username = serializers.CharField(source="resolved_by.username", read_only=True, allow_null=True)
+    resolved_by_email = serializers.CharField(source="resolved_by.email", read_only=True, allow_null=True)
 
     class Meta:
         model = ConflictRecord
@@ -42,7 +42,7 @@ class ConflictRecordSerializer(serializers.ModelSerializer):
             "resolved",
             "resolved_at",
             "resolved_by",
-            "resolved_by_username",
+            "resolved_by_email",
             "resolution_strategy",
             "created_at",
         ]
