@@ -1,15 +1,15 @@
-from django.forms import ValidationError
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db import transaction
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 
 from .models import Inspection, InspectionTemplate
+from .services import InspectionService, ConflictError
 from .serializers import InspectionSerializer, CreateInspectionSerializer, UpdateInspectionSerializer, InspectionTemplateSerializer
-from apps.sync.models import SyncOperation, ConflictRecord
-from apps.inspections.services import InspectionService, ConflictError
+from apps.sync.services import IdempotencyService
 
 
 class InspectionTemplateViewSet(viewsets.ModelViewSet):
@@ -64,12 +64,27 @@ class InspectionViewSet(viewsets.ModelViewSet):
 
         idempotency_key = request.headers.get("Idempotency-Key")
 
+        # idempotency check
+        if idempotency_key:
+            if IdempotencyService.exists(idempotency_key):
+                result = IdempotencyService.get_result(idempotency_key)
+                inspection = Inspection.objects.get(id=result.get("id"))
+                serializer = InspectionSerializer(inspection)
+
+                return Response(serializer.data)
+
         try:
-            inspection = InspectionService.create_inspection(
-                data=request.data,
-                user=request.user,
-                idempotency_key=idempotency_key,
-            )
+            inspection = InspectionService.create_inspection(data=request.data, user=request.user)
+
+            # record idempotency
+            if idempotency_key:
+                IdempotencyService.record(
+                    idempotency_key=idempotency_key,
+                    operation_type="CREATE_INSPECTION",
+                    entity_id=str(inspection.id),
+                    user=request.user,
+                    result={"id": str(inspection.id), "version": inspection.version},
+                )
 
             serializer = InspectionSerializer(inspection)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -89,13 +104,31 @@ class InspectionViewSet(viewsets.ModelViewSet):
         idempotency_key = request.headers.get("Idempotency-Key")
         client_version = request.data.get("version")
 
+        # idempotency check
+        if idempotency_key:
+            if IdempotencyService.exists(idempotency_key):
+                inspection = Inspection.objects.get(id=pk)
+                serializer = InspectionSerializer(inspection)
+
+                return Response(serializer.data)
+
         try:
             inspection = InspectionService.update_inspection(
                 inspection_id=pk,
                 data=request.data,
                 client_version=client_version,
-                idempotency_key=idempotency_key,
             )
+
+            # record idempotency
+            if idempotency_key:
+                IdempotencyService.record(
+                    idempotency_key=idempotency_key,
+                    operation_type="UPDATE_INSPECTION",
+                    entity_id=str(inspection.id),
+                    user=request.user,
+                    result={"id": str(inspection.id), "version": inspection.version},
+                )
+
             serializer = InspectionSerializer(inspection)
             return Response(serializer.data)
 
@@ -113,69 +146,6 @@ class InspectionViewSet(viewsets.ModelViewSet):
 
         except Inspection.DoesNotExist:
             return Response({"error": "Inspection not found"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # # check idempotency
-        # if idempotency_key:
-        #     try:
-        #         sync_op = SyncOperation.objects.get(idempotency_key=idempotency_key)
-        #         # already processed; return cached result
-        #         return Response(sync_op.result, status=status.HTTP_200_OK)
-        #     except SyncOperation.DoesNotExist:
-        #         pass
-
-        # inspection = self.get_object()
-        # client_version = request.data.get("version")
-
-        # # CRITICAL: check version for conflicts before updating
-        # if inspection.version != client_version:
-        #     server_data = InspectionSerializer(inspection).data
-
-        #     # record conflict for audit
-        #     ConflictRecord.objects.create(
-        #         inspection=inspection,
-        #         client_version_number=client_version,
-        #         server_version_number=inspection.version,
-        #         server_data=server_data,
-        #         client_data=request.data,
-        #     )
-
-        #     return Response(
-        #         {
-        #             "error": "conflict",
-        #             "message": "Another user has updated this inspection while you were editing it.",
-        #             "client_version": client_version,
-        #             "server_version": inspection.version,
-        #             "server_data": server_data,
-        #         },
-        #         status=status.HTTP_409_CONFLICT,
-        #     )
-
-        # # no conflict; update inspection
-        # serializer = self.get_serializer(inspection, data=request.data, partial=True)
-        # serializer.is_valid(raise_exception=True)
-
-        # # increment version
-        # inspection.increment_version()
-
-        # # handle status change
-        # if request.data.get("status") == "submitted" and inspection.status != "draft":
-        #     inspection.submitted_at = timezone.now()
-
-        # inspection.save()
-
-        # # record operation for idempotency
-        # if idempotency_key:
-        #     result_data = InspectionSerializer(inspection).data
-        #     SyncOperation.objects.create(
-        #         idempotency_key=idempotency_key,
-        #         operation_type="UPDATE_INSPECTION",
-        #         entity_id=inspection.id,
-        #         user=request.user,
-        #         result=result_data,
-        #     )
-
-        # response_serializer = InspectionSerializer(inspection)
-        # return Response(response_serializer.data)
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):

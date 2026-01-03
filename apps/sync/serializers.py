@@ -1,6 +1,5 @@
 from rest_framework import serializers
 from .models import SyncOperation, ConflictRecord
-from apps.inspections.models import Inspection
 from apps.inspections.serializers import InspectionSerializer
 
 

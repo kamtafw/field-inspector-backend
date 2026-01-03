@@ -2,17 +2,13 @@ from django.db import transaction
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from apps.inspections.models import Inspection, InspectionTemplate
-from apps.sync.models import ConflictRecord
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 class ConflictError(Exception):
-    """
-    Custom exception for version conflicts
-    Contains both client and server versions of the inspection
-    """
+    """Custom exception for version conflicts"""
 
     def __init__(self, inspection, client_version, server_version):
         self.inspection = inspection
@@ -24,19 +20,18 @@ class ConflictError(Exception):
 class InspectionService:
     """
     Service layer for inspection operations
-    Handles creation, updates, conflict detection, and approval workflows
+    Handles creation, updates, conflict detection, and approval workflows (NO idempotency check)
     """
 
     @staticmethod
     @transaction.atomic
-    def create_inspection(data: dict, user, idempotency_key: str = None):  # type: ignore
+    def create_inspection(data: dict, user):  # type: ignore
         """
         Create a new inspection
 
         Args:
             data: Dict containing inspection fields
             user: User creating the inspection
-            idempotency_key: UUID for idempotency (optional)
 
         Returns:
             Created Inspection instance
@@ -45,15 +40,6 @@ class InspectionService:
             ValidationError: If data is invalid
         """
         logger.info(f"Creating inspection for user {user.email}")
-
-        # idempotency check
-        if idempotency_key:
-            from apps.sync.services import IdempotencyService
-
-            if IdempotencyService.exists(idempotency_key):
-                logger.info(f"Returning cached result for key {idempotency_key}")
-                result = IdempotencyService.get_result(idempotency_key)
-                return Inspection.objects.get(id=result["id"])
 
         # validate template exists
         template_id = data.get("template_id")
@@ -75,31 +61,18 @@ class InspectionService:
 
         logger.info(f"Created inspection {inspection.id}")
 
-        # record idempotency if key provided
-        if idempotency_key:
-            from apps.sync.services import IdempotencyService
-
-            IdempotencyService.set_result(
-                idempotency_key=idempotency_key,
-                operation_type="CREATE_INSPECTION",
-                entity_id=str(inspection.id),
-                user=user,
-                result={"id": str(inspection.id), "version": inspection.version},
-            )
-
         return inspection
 
     @staticmethod
     @transaction.atomic
-    def update_inspection(inspection_id: str, data: dict, client_version: int, idempotency_key: str = None):
+    def update_inspection(inspection_id: str, data: dict, client_version: int):
         """
         Update an existing inspection with optimistic locking
 
         Args:
             inspection_id: UUID of inspection to update
             data: Dict containing fields to update
-            client_version: Version number from cient (for conlflict detection)
-            idempotency_key: UUID for idempotency (optional)
+            client_version: Version number from client (for conflict detection)
 
         Returns:
             Updated Inspection instance
@@ -110,14 +83,6 @@ class InspectionService:
         """
 
         logger.info(f"Updating inspection {inspection_id}; client_version {client_version}")
-
-        # check idempotency
-        if idempotency_key:
-            from apps.sync.services import IdempotencyService
-
-            if IdempotencyService.exists(idempotency_key):
-                logger.info(f"Returning cached result for key {idempotency_key}")
-                return Inspection.objects.get(id=inspection_id)
 
         # lock the row for update
         inspection = Inspection.objects.select_for_update().get(id=inspection_id)
@@ -153,16 +118,5 @@ class InspectionService:
         inspection.save()
 
         logger.info(f"Updated inspection {inspection_id} to version {inspection.version}")
-
-        if idempotency_key:
-            from apps.sync.services import IdempotencyService
-
-            IdempotencyService.set_result(
-                idempotency_key=idempotency_key,
-                operation_type="UPDATE_INSPECTION",
-                entity_id=str(inspection.id),
-                user=inspection.inspector,
-                result={"id": str(inspection.id), "version": inspection.version},
-            )
 
         return inspection
