@@ -26,7 +26,7 @@ class Inspection(models.Model):
         ("approved", "Approved"),
     )
 
-    id = models.UUIDField(primary_key=True)  # client-generated
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
     template = models.ForeignKey(InspectionTemplate, on_delete=models.CASCADE)
     inspector = models.ForeignKey(User, related_name="inspections", on_delete=models.CASCADE)
     facility_name = models.CharField(max_length=255)

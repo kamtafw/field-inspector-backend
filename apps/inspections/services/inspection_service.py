@@ -49,7 +49,6 @@ class InspectionService:
             raise ValidationError(f"Template {template_id} not found")
 
         inspection = Inspection.objects.create(
-            id=data.get("id"),
             template=template,
             inspector=user,
             facility_name=data.get("facility_name"),
@@ -58,6 +57,8 @@ class InspectionService:
             status=data.get("status", "draft"),
             version=1,  # start at version 1
         )
+
+        print("Created inspection", inspection.id)
 
         logger.info(f"Created inspection {inspection.id}")
 

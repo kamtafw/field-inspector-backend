@@ -79,7 +79,6 @@ class CreateInspectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Inspection
         fields = [
-            "id",  # client-provided ID
             "template",
             "facility_name",
             "facility_address",
