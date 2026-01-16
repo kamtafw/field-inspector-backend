@@ -1,7 +1,9 @@
+from wsgiref.simple_server import server_version
 import logging
 from django.db import transaction
-from .models import SyncOperation
-from apps.inspections.services import InspectionService
+from .models import SyncOperation, ConflictRecord
+from apps.inspections.services import InspectionService, ConflictError
+from apps.inspections.serializers import InspectionSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +33,6 @@ class IdempotencyService:
     @transaction.atomic
     def record(idempotency_key: str, operation_type: str, entity_id: str, user, result: dict):
         """Record a processed operation"""
-
         SyncOperation.objects.create(
             idempotency_key=idempotency_key,
             operation_type=operation_type,
@@ -44,7 +45,6 @@ class IdempotencyService:
     @staticmethod
     def exists(idempotency_key: str) -> bool:
         """Check if an operation exists"""
-
         return SyncOperation.objects.filter(idempotency_key=idempotency_key).exists()
 
 
@@ -61,8 +61,8 @@ class BatchSyncService:
         Process a batch of sync operations
         Returns list of processed operations
         """
-
         results = []
+
         for operation in operations:
             try:
                 result = BatchSyncService.process_operation(
@@ -72,8 +72,39 @@ class BatchSyncService:
                     user=user,
                 )
                 results.append({"success": True, "data": result, "idempotency_key": operation["idempotency_key"]})
+
+            except ConflictError as e:
+                logger.warning(f"Conflict detected: {str(e)}")
+
+                ConflictRecord.objects.create(
+                    inspection=e.inspection,
+                    client_version_number=e.client_version,
+                    server_version_number=e.server_version,
+                    client_data=operation["data"],
+                    server_data=BatchSyncService._serialize_inspection(e.inspection),
+                )
+                results.append(
+                    {
+                        "success": False,
+                        "error": "conflict",
+                        "idempotency_key": operation["idempotency_key"],
+                        "conflict_data": {
+                            "client_version": e.client_version,
+                            "server_version": e.server_version,
+                            "server_data": {
+                                "id": str(e.inspection.id),
+                                "template_id": str(e.inspection.template.id),
+                                "facility_name": e.inspection.facility_name,
+                                "facility_address": e.inspection.facility_address,
+                                "response": e.inspection.responses,
+                                "status": e.inspection.status,
+                                "version": e.inspection.version,
+                            },
+                        },
+                    }
+                )
+
             except Exception as e:
-                print(e)
                 logger.error(f"Operation failed: {str(e)}")
                 results.append({"success": False, "error": str(e), "idempotency_key": operation["idempotency_key"]})
         print("RESULTS:", results)
@@ -92,16 +123,21 @@ class BatchSyncService:
 
         if operation_type == "CREATE_INSPECTION":
             inspection = InspectionService.create_inspection(data=data, user=user)
-
             result = {"id": str(inspection.id), "version": inspection.version}
 
         elif operation_type == "UPDATE_INSPECTION":
             inspection_id = data.get("id")
             client_version = data.get("version")
 
+            if not inspection_id:
+                raise ValueError("Missing 'id' field for UPDATE_INSPECTION")
+            if not client_version:
+                raise ValueError("Missing 'id' field for UPDATE_INSPECTION")
+
             inspection = InspectionService.update_inspection(inspection_id=inspection_id, data=data, client_version=client_version)
 
             result = {"id": str(inspection.id), "version": inspection.version}
+
         else:
             raise ValueError(f"Invalid operation type: {operation_type}")
 
@@ -115,3 +151,17 @@ class BatchSyncService:
         )
 
         return result
+
+    @staticmethod
+    def _serialize_inspection(inspection):
+        """Helper to serialize inspection data for conflict response"""
+        return {
+            "id": str(inspection.id),
+            "template_id": str(inspection.template.id),
+            "facility_name": inspection.facility_name,
+            "facility_address": inspection.facility_address,
+            "responses": inspection.responses,
+            "status": inspection.status,
+            "version": inspection.version,
+            "updated_at": inspection.updated_at.isoformat() if inspection.updated_at else None,
+        }

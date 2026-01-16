@@ -7,16 +7,13 @@ from django.utils import timezone
 from django.core.exceptions import ValidationError
 
 from .models import Inspection, InspectionTemplate
-from .services import InspectionService, ConflictError
 from .serializers import InspectionSerializer, CreateInspectionSerializer, UpdateInspectionSerializer, InspectionTemplateSerializer
-from apps.sync.services import IdempotencyService
+from .services import InspectionService, ConflictError
+from apps.sync.models import ConflictRecord
 
 
 class InspectionTemplateViewSet(viewsets.ModelViewSet):
-    """
-    Read-only endpoint for inspection templates
-    Mobile app downloads these while online and stores them locally
-    """
+    """Read-only viewset for inspection templates"""
 
     queryset = InspectionTemplate.objects.all()
     serializer_class = InspectionTemplateSerializer
@@ -24,12 +21,7 @@ class InspectionTemplateViewSet(viewsets.ModelViewSet):
 
 
 class InspectionViewSet(viewsets.ModelViewSet):
-    """
-    CRUD operations for inspections with:
-    - Idempotency checks
-    - Optimistic locking (version-based conflict detection)
-    - Manager approval workflow
-    """
+    """Viewset for inspections with conflict handling"""
 
     permission_classes = [IsAuthenticated]
 
@@ -47,34 +39,37 @@ class InspectionViewSet(viewsets.ModelViewSet):
             return UpdateInspectionSerializer
         return InspectionSerializer
 
+    def get_object(self):
+        obj = Inspection.objects.select_for_update().get(pk=self.kwargs["pk"])
+
+        # if self.request.user.role != "manager" and obj.inspector != self.request.user:
+        #     raise PermissionDenied("You cannot update this inspection")
+
+        return obj
+
     @transaction.atomic
     def create(self, request):
         """
-        Create inspection with idempotency check and optimistic locking
-
-        Client provides:
-        - id (UUID)
-        - Idempotency-Key
-        - Inspection data
-
-        Server responses:
-        - 201 Created (if successful)
-        - 400 Bad Request (if data is invalid)
+        Create new inspection
+        Handles idempotency check and optimistic locking
         """
 
-        idempotency_key = request.headers.get("Idempotency-Key")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
         # idempotency check
+        idempotency_key = request.headers.get("Idempotency-Key")
         if idempotency_key:
-            if IdempotencyService.exists(idempotency_key):
-                result = IdempotencyService.get_result(idempotency_key)
-                inspection = Inspection.objects.get(id=result.get("id"))
-                serializer = InspectionSerializer(inspection)
+            from apps.sync.services import IdempotencyService
 
-                return Response(serializer.data)
+            cached_result = IdempotencyService.get_result(idempotency_key)
+            if cached_result:
+                return Response(cached_result)
 
         try:
-            inspection = InspectionService.create_inspection(data=request.data, user=request.user)
+            inspection = InspectionService.create_inspection(data=serializer.validated_data, user=request.user)
+
+            result = {"id": str(inspection.id), "version": inspection.version}
 
             # record idempotency
             if idempotency_key:
@@ -83,11 +78,10 @@ class InspectionViewSet(viewsets.ModelViewSet):
                     operation_type="CREATE_INSPECTION",
                     entity_id=str(inspection.id),
                     user=request.user,
-                    result={"id": str(inspection.id), "version": inspection.version},
+                    result=result,
                 )
 
-            serializer = InspectionSerializer(inspection)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(result, status=status.HTTP_201_CREATED)
 
         except ValidationError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -96,50 +90,82 @@ class InspectionViewSet(viewsets.ModelViewSet):
     def update(self, request, pk=None):
         """
         Update inspection with optimistic locking
-
-        returns:
-        - 200 OK (if successful)
-        - 409 Conflict (if version mismatch)
+        Returns 409 Conflict if version mismatch
         """
-        idempotency_key = request.headers.get("Idempotency-Key")
-        client_version = request.data.get("version")
+        print("UPDATE DATA:", request.data)
+
+        inspection = self.get_object()
+        serializer = self.get_serializer(inspection, data=request.data, partial=False)
+        serializer.is_valid(raise_exception=True)
+
+        print("SERIALIZER didn't fail")
+
+        client_version = serializer.validated_data.get("version")
 
         # idempotency check
+        idempotency_key = request.headers.get("Idempotency-Key")
         if idempotency_key:
-            if IdempotencyService.exists(idempotency_key):
-                inspection = Inspection.objects.get(id=pk)
-                serializer = InspectionSerializer(inspection)
+            from apps.sync.services import IdempotencyService
 
-                return Response(serializer.data)
+            cached_result = IdempotencyService.get_result(idempotency_key)
+            if cached_result:
+                return Response(cached_result)
 
         try:
-            inspection = InspectionService.update_inspection(
-                inspection_id=pk,
+            updated_inspection = InspectionService.update_inspection(
+                inspection_id=str(inspection.id),
                 data=request.data,
                 client_version=client_version,
             )
 
+            result = {"id": str(updated_inspection.id), "version": updated_inspection.version}
+
             # record idempotency
             if idempotency_key:
+                from apps.sync.services import IdempotencyService
+
                 IdempotencyService.record(
                     idempotency_key=idempotency_key,
                     operation_type="UPDATE_INSPECTION",
-                    entity_id=str(inspection.id),
+                    entity_id=str(updated_inspection.id),
                     user=request.user,
-                    result={"id": str(inspection.id), "version": inspection.version},
+                    result=result,
                 )
 
-            serializer = InspectionSerializer(inspection)
-            return Response(serializer.data)
+            return Response(result)
 
         except ConflictError as e:
+            ConflictRecord.objects.create(
+                inspection=e.inspection,
+                client_version_number=e.client_version,
+                server_version_number=e.server_version,
+                client_data=serializer.validated_data,
+                server_data={
+                    "id": str(e.inspection.id),
+                    "template_id": str(e.inspection.template_id),
+                    "facility_name": e.inspection.facility_name,
+                    "facility_address": e.inspection.facility_address,
+                    "responses": e.inspection.responses,
+                    "status": e.inspection.status,
+                    "version": e.inspection.version,
+                },
+            )
+
             return Response(
                 {
                     "error": "conflict",
                     "message": str(e),
                     "client_version": e.client_version,
                     "server_version": e.server_version,
-                    "server_data": InspectionSerializer(e.inspection).data,
+                    "server_data": {
+                        "id": str(e.inspection.id),
+                        "template_id": str(e.inspection.template.id),
+                        "facility_name": e.inspection.facility_name,
+                        "facility_address": e.inspection.facility_address,
+                        "responses": e.inspection.responses,
+                        "status": e.inspection.status,
+                        "version": e.inspection.version,
+                    },
                 },
                 status=status.HTTP_409_CONFLICT,
             )

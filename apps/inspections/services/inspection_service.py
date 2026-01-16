@@ -41,15 +41,8 @@ class InspectionService:
         """
         logger.info(f"Creating inspection for user {user.email}")
 
-        # validate template exists
-        template_id = data.get("template_id")
-        try:
-            template = InspectionTemplate.objects.get(id=template_id)
-        except InspectionTemplate.DoesNotExist:
-            raise ValidationError(f"Template {template_id} not found")
-
         inspection = Inspection.objects.create(
-            template=template,
+            template=data.get("template"),
             inspector=user,
             facility_name=data.get("facility_name"),
             facility_address=data.get("facility_address", ""),
@@ -57,8 +50,6 @@ class InspectionService:
             status=data.get("status", "draft"),
             version=1,  # start at version 1
         )
-
-        print("Created inspection", inspection.id)
 
         logger.info(f"Created inspection {inspection.id}")
 

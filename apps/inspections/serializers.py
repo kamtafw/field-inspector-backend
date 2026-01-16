@@ -74,12 +74,18 @@ class InspectionSerializer(serializers.ModelSerializer):
 
 
 class CreateInspectionSerializer(serializers.ModelSerializer):
-    """Create inspection with client-provided ID"""
+    """Create inspection"""
+
+    template_id = serializers.PrimaryKeyRelatedField(
+        source="template",
+        queryset=InspectionTemplate.objects.all(),
+        write_only=True,
+    )
 
     class Meta:
         model = Inspection
         fields = [
-            "template",
+            "template_id",
             "facility_name",
             "facility_address",
             "responses",
