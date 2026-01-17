@@ -20,7 +20,7 @@ class ConflictError(Exception):
 class InspectionService:
     """
     Service layer for inspection operations
-    Handles creation, updates, conflict detection, and approval workflows (NO idempotency check)
+    Handles creation, updates, conflict detection, and approval workflows
     """
 
     @staticmethod
@@ -52,12 +52,11 @@ class InspectionService:
         )
 
         logger.info(f"Created inspection {inspection.id}")
-
         return inspection
 
     @staticmethod
     @transaction.atomic
-    def update_inspection(inspection_id: str, data: dict, client_version: int):
+    def update_inspection(inspection_id: str, data: dict, client_version: int, is_conflict_resolution: bool = False):
         """
         Update an existing inspection with optimistic locking
 
@@ -65,6 +64,7 @@ class InspectionService:
             inspection_id: UUID of inspection to update
             data: Dict containing fields to update
             client_version: Version number from client (for conflict detection)
+            is_conflict_resolution: If True, this is a conflict resolution update
 
         Returns:
             Updated Inspection instance
@@ -73,19 +73,36 @@ class InspectionService:
             ConflictError: If version mismatch detected
             Inspection.DoesNotExist: If inspection not found
         """
-
-        logger.info(f"Updating inspection {inspection_id}; client_version {client_version}")
+        logger.info(f"Updating inspection {inspection_id}; " f"client_version {client_version}, " f"is_conflict_resolution={is_conflict_resolution}")
 
         # lock the row for update
         inspection = Inspection.objects.select_for_update().get(id=inspection_id)
 
-        # check version for conflicts
-        if inspection.version != client_version:
-            logger.warning(f"Conflict detected on inspection {inspection_id}: " f"client v{client_version} vs server v{inspection.version}")
+        if is_conflict_resolution:
+            logger.info(
+                f"Processing conflict resolution for inspection {inspection_id}. "
+                f"Client claims to have resolved conflict from server v{client_version}"
+            )
 
-            # record conflict for audit trail
+            # check if server version has changed since conflict was detected
+            if inspection.version != client_version:
+                logger.warning(
+                    f"Server version changed during conflict resolution! "
+                    f"Client resolved v{client_version} but server is now v{inspection.version}"
+                )
 
-            raise ConflictError(inspection=inspection, client_version=client_version, server_version=inspection.version)
+                raise ConflictError(inspection=inspection, client_version=client_version, server_version=inspection.version)
+
+            # server version hasn't changed - accept the resolution
+            logger.info(f"Accepting conflict resolution for inspection {inspection_id}")
+            # continue with update below...
+
+        else:
+            # standard version check
+            if inspection.version != client_version:
+                logger.warning(f"Conflict detected on inspection {inspection_id}: " f"client v{client_version} vs server v{inspection.version}")
+
+                raise ConflictError(inspection=inspection, client_version=client_version, server_version=inspection.version)
 
         if "facility_name" in data:
             inspection.facility_name = data["facility_name"]
@@ -112,3 +129,23 @@ class InspectionService:
         logger.info(f"Updated inspection {inspection_id} to version {inspection.version}")
 
         return inspection
+
+    @staticmethod
+    @transaction.atomic
+    def resolve_conflict(inspection_id: str, resolved_data: dict, conflict_server_version: int, user):
+        """
+        Convenience method for conflict resolution
+        Wrapper around update_inspection with is_conflict_resolution=True
+
+        Args:
+            inspection_id: UUID of inspection
+            resolved_data: The merged/resolved data
+            conflict_server_version: The server version when conflict was detected
+            user: User resolving the conflict
+
+        Returns:
+            Updated Inspection instance
+        """
+        return InspectionService.update_inspection(
+            inspection_id=inspection_id, data=resolved_data, client_version=conflict_server_version, is_conflict_resolution=True
+        )

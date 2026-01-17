@@ -92,13 +92,9 @@ class InspectionViewSet(viewsets.ModelViewSet):
         Update inspection with optimistic locking
         Returns 409 Conflict if version mismatch
         """
-        print("UPDATE DATA:", request.data)
-
         inspection = self.get_object()
         serializer = self.get_serializer(inspection, data=request.data, partial=False)
         serializer.is_valid(raise_exception=True)
-
-        print("SERIALIZER didn't fail")
 
         client_version = serializer.validated_data.get("version")
 

@@ -3,7 +3,7 @@ import logging
 from django.db import transaction
 from .models import SyncOperation, ConflictRecord
 from apps.inspections.services import InspectionService, ConflictError
-from apps.inspections.serializers import InspectionSerializer
+from apps.inspections.serializers import CreateInspectionSerializer, UpdateInspectionSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,6 @@ class BatchSyncService:
             except Exception as e:
                 logger.error(f"Operation failed: {str(e)}")
                 results.append({"success": False, "error": str(e), "idempotency_key": operation["idempotency_key"]})
-        print("RESULTS:", results)
         return results
 
     @staticmethod
@@ -115,19 +114,25 @@ class BatchSyncService:
         """Process a single sync operation"""
 
         # check idempotency
-        if IdempotencyService.exists(idempotency_key):
-            logger.info(f"Returning cached result for {idempotency_key}")
-            return IdempotencyService.get_result(idempotency_key)
+        cached_result = IdempotencyService.get_result(idempotency_key)
+        if cached_result:
+            return cached_result
 
         result = None
 
         if operation_type == "CREATE_INSPECTION":
-            inspection = InspectionService.create_inspection(data=data, user=user)
+            serializer = CreateInspectionSerializer(data=data)
+            serializer.is_valid(raise_exception=True)
+
+            inspection = InspectionService.create_inspection(data=serializer.validated_data, user=user)
             result = {"id": str(inspection.id), "version": inspection.version}
 
         elif operation_type == "UPDATE_INSPECTION":
+            serializer = UpdateInspectionSerializer(data=data)
+            serializer.is_valid(raise_exception=True)
+
             inspection_id = data.get("id")
-            client_version = data.get("version")
+            client_version = serializer.validated_data.get("version")
 
             if not inspection_id:
                 raise ValueError("Missing 'id' field for UPDATE_INSPECTION")
