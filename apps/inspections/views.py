@@ -161,6 +161,16 @@ class InspectionViewSet(viewsets.ModelViewSet):
                         "responses": e.inspection.responses,
                         "status": e.inspection.status,
                         "version": e.inspection.version,
+                        "updated_by": {
+                            "id": str(e.inspection.inspector.id) if e.inspection.inspector else None,
+                            "email": e.inspection.inspector.email if e.inspection.inspector else None,
+                            "name": (
+                                f"{e.inspection.inspector.first_name} {e.inspection.inspector.last_name}".strip()
+                                if e.inspection.inspector and (e.inspection.inspector.first_name or e.inspection.inspector.last_name)
+                                else e.inspection.inspector.email if e.inspection.inspector else "Unknown"
+                            ),
+                        },
+                        "updated_at": e.inspection.updated_at.isoformat() if e.inspection.updated_at else None,
                     },
                 },
                 status=status.HTTP_409_CONFLICT,

@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import InspectionTemplate, Inspection, Photo
+from .models import InspectionTemplate, Inspection
+from apps.photos.serializers import PhotoSerializer
 
 User = get_user_model()
 
@@ -12,15 +13,6 @@ class InspectorSerializer(serializers.ModelSerializer):
         model = User
         fields = ["id", "email", "first_name", "last_name"]
         read_only_fields = fields
-
-
-class PhotoSerializer(serializers.ModelSerializer):
-    """Photo attachment for inspection"""
-
-    class Meta:
-        model = Photo
-        fields = ["id", "s3_key", "s3_url", "file_size", "uploaded_at"]
-        read_only_fields = ["id", "uploaded_at"]
 
 
 class InspectionTemplateSerializer(serializers.ModelSerializer):

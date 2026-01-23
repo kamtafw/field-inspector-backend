@@ -52,16 +52,3 @@ class Inspection(models.Model):
             models.Index(fields=["inspector", "status"]),
             models.Index(fields=["created_at"]),
         ]
-
-
-class Photo(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
-    inspection = models.ForeignKey(Inspection, related_name="photos", on_delete=models.CASCADE)
-    s3_key = models.CharField(max_length=255)
-    s3_url = models.URLField(max_length=1000)
-    file_size = models.IntegerField()  # bytes
-    uploaded_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "photos"
-        ordering = ["-uploaded_at"]
