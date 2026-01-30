@@ -129,23 +129,3 @@ class InspectionService:
         logger.info(f"Updated inspection {inspection_id} to version {inspection.version}")
 
         return inspection
-
-    @staticmethod
-    @transaction.atomic
-    def resolve_conflict(inspection_id: str, resolved_data: dict, conflict_server_version: int, user):
-        """
-        Convenience method for conflict resolution
-        Wrapper around update_inspection with is_conflict_resolution=True
-
-        Args:
-            inspection_id: UUID of inspection
-            resolved_data: The merged/resolved data
-            conflict_server_version: The server version when conflict was detected
-            user: User resolving the conflict
-
-        Returns:
-            Updated Inspection instance
-        """
-        return InspectionService.update_inspection(
-            inspection_id=inspection_id, data=resolved_data, client_version=conflict_server_version, is_conflict_resolution=True
-        )
