@@ -179,6 +179,33 @@ class InspectionViewSet(viewsets.ModelViewSet):
         except Inspection.DoesNotExist:
             return Response({"error": "Inspection not found"}, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=True, methods=["get"])
+    def check_version(self, request, pk=None):
+        """
+        Check if client version is current before editing
+
+        GET /api/inspections/{id}/check_version?version=5
+        Returns: { "is_current": true/false, "server_version": 6 }
+        """
+        inspection = self.get_object()
+        client_version = int(request.query_params.get("version", 0))
+
+        return Response(
+            {
+                "is_current": inspection.version == client_version,
+                "server_version": inspection.version,
+                "last_updated_by": (
+                    {
+                        "name": f"{inspection.inspector.first_name} {inspection.inspector.last_name}",
+                        "email": inspection.inspector.email,
+                    }
+                    if inspection.inspector
+                    else None
+                ),
+                "updated_at": inspection.updated_at.isoformat(),
+            }
+        )
+
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         """

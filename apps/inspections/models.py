@@ -27,8 +27,8 @@ class Inspection(models.Model):
     )
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4)
-    template = models.ForeignKey(InspectionTemplate, on_delete=models.CASCADE)
-    inspector = models.ForeignKey(User, related_name="inspections", on_delete=models.CASCADE)
+    template = models.ForeignKey(InspectionTemplate, on_delete=models.PROTECT, related_name="inspections")
+    inspector = models.ForeignKey(User, on_delete=models.CASCADE, related_name="inspections")
     facility_name = models.CharField(max_length=255)
     facility_address = models.CharField(max_length=500)
     responses = models.JSONField()  # checklist responses

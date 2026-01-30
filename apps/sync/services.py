@@ -62,15 +62,26 @@ class BatchSyncService:
         """
         results = []
 
-        for operation in operations:
+        for idx, operation in enumerate(operations):
+            operation_type = operation["operation_type"]
+            idempotency_key = operation["idempotency_key"]
+
             try:
                 result = BatchSyncService.process_operation(
-                    operation_type=operation["operation_type"],
-                    idempotency_key=operation["idempotency_key"],
+                    operation_type=operation_type,
+                    idempotency_key=idempotency_key,
                     data=operation["data"],
                     user=user,
                 )
-                results.append({"success": True, "data": result, "idempotency_key": operation["idempotency_key"]})
+                results.append(
+                    {
+                        "index": idx,
+                        "success": True,
+                        "data": result,
+                        "idempotency_key": idempotency_key,
+                        "operation_type": operation_type,
+                    }
+                )
 
             except ConflictError as e:
                 logger.warning(f"Conflict detected: {str(e)}")
@@ -84,9 +95,11 @@ class BatchSyncService:
                 )
                 results.append(
                     {
+                        "id": idx,
                         "success": False,
                         "error": "conflict",
-                        "idempotency_key": operation["idempotency_key"],
+                        "idempotency_key": idempotency_key,
+                        "operation_type": operation_type,
                         "conflict_data": {
                             "client_version": e.client_version,
                             "server_version": e.server_version,
@@ -98,16 +111,16 @@ class BatchSyncService:
                                 "response": e.inspection.responses,
                                 "status": e.inspection.status,
                                 "version": e.inspection.version,
-                                "updated_by": {
-                                    "id": str(e.inspection.inspector.id) if e.inspection.inspector else None,
-                                    "email": e.inspection.inspector.email if e.inspection.inspector else None,
-                                    "name": (
-                                        f"{e.inspection.inspector.first_name} {e.inspection.inspector.last_name}".strip()
-                                        if e.inspection.inspector and (e.inspection.inspector.first_name or e.inspection.inspector.last_name)
-                                        else e.inspection.inspector.email if e.inspection.inspector else "Unknown"
-                                    ),
-                                    "updated_at": e.inspection.updated_at.isoformat() if e.inspection.updated_at else None,
-                                },
+                                "updated_by": (
+                                    {
+                                        "id": str(e.inspection.inspector.id),
+                                        "email": e.inspection.inspector.email,
+                                        "name": f"{e.inspection.inspector.first_name} {e.inspection.inspector.last_name}".strip(),
+                                        "updated_at": e.inspection.updated_at.isoformat(),
+                                    }
+                                    if e.inspection.inspector
+                                    else None
+                                ),
                             },
                         },
                     }
@@ -115,8 +128,16 @@ class BatchSyncService:
 
             except Exception as e:
                 logger.error(f"Operation failed: {str(e)}")
-                results.append({"success": False, "error": str(e), "idempotency_key": operation["idempotency_key"]})
-        logger.info(f"Batch processed: {len(results)} operations")
+                results.append(
+                    {
+                        "index": idx,
+                        "success": False,
+                        "error": str(e),
+                        "idempotency_key": idempotency_key,
+                        "operation_type": operation_type,
+                    }
+                )
+        logger.info(f"Batch processed: {sum(1 for r in results if r['success'])} succeeded, " f"{sum(1 for r in results if not r['success'])} failed")
         return results
 
     @staticmethod
@@ -178,5 +199,5 @@ class BatchSyncService:
             "responses": inspection.responses,
             "status": inspection.status,
             "version": inspection.version,
-            "updated_at": inspection.updated_at.isoformat() if inspection.updated_at else None,
+            "updated_at": inspection.updated_at.isoformat(),
         }
