@@ -15,9 +15,11 @@ from apps.sync.models import ConflictRecord
 class InspectionTemplateViewSet(viewsets.ModelViewSet):
     """Read-only viewset for inspection templates"""
 
-    queryset = InspectionTemplate.objects.all()
     serializer_class = InspectionTemplateSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return InspectionTemplate.objects.filter(is_active=True)
 
 
 class InspectionViewSet(viewsets.ModelViewSet):
@@ -222,7 +224,7 @@ class InspectionViewSet(viewsets.ModelViewSet):
         inspection.approved_at = timezone.now()
         inspection.approval_notes = request.data.get("notes", "")
         inspection.increment_version()
-        inspection.save()
+        # inspection.save()
 
         # TODO: send push notification to inspector
 
@@ -245,7 +247,7 @@ class InspectionViewSet(viewsets.ModelViewSet):
         inspection.approved_at = timezone.now()
         inspection.approval_notes = request.data.get("notes", "")
         inspection.increment_version()
-        inspection.save()
+        # inspection.save()
 
         # TODO: send push notification to inspector
 

@@ -42,3 +42,12 @@ class Photo(models.Model):
             self.cloudinary_public_id,
             transformation={"width": 800, "crop": "limit", "quality": "auto"},
         )
+
+    def delete(self, *args, **kwargs):
+        """Override delete to cleanup Cloudinary file"""
+        if self.cloudinary_public_id:
+            from .services.cloudinary_service import CloudinaryService
+
+            service = CloudinaryService()
+            service.delete_image(self.cloudinary_public_id)
+        super().delete(*args, **kwargs)

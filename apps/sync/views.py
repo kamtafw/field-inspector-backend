@@ -1,4 +1,4 @@
-from rest_framework import viewsets
+from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -45,7 +45,16 @@ def batch_sync(request):
 
     operations = serializer.validated_data["operations"]
 
-    results = BatchSyncService.process_batch(operations, request.user)
+    if len(operations) > 100:
+        return Response({"error": "Maximum 100 operations per batch"}, status=status.HTTP_400_BAD_REQUEST)
 
-    response_serializer = BatchSyncResponseSerializer(results, many=True)
-    return Response(response_serializer.data)
+    try:
+        results = BatchSyncService.process_batch(operations, request.user)
+        response_serializer = BatchSyncResponseSerializer(results, many=True)
+
+        has_failures = any(not r["success"] for r in results)
+        status_code = status.HTTP_207_MULTI_STATUS if has_failures else status.HTTP_200_OK
+
+        return Response(response_serializer, status=status_code)
+    except Exception as e:
+        return Response({"error": "Batch sync failed", "detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

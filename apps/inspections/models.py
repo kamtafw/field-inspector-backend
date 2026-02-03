@@ -1,5 +1,6 @@
 import uuid
 from django.db import models
+from django.utils import timezone
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -9,13 +10,22 @@ class InspectionTemplate(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4)
     name = models.CharField(max_length=255)
     version = models.IntegerField(default=1)
-    checklist_items = models.JSONField()  # array of questions
+    checklist_items = models.JSONField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    is_active = models.BooleanField(default=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "inspection_templates"
         ordering = ["-created_at"]
+
+    def soft_delete(self):
+        """Soft delete template to prevent new inspections"""
+        self.is_active = False
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["is_active", "deleted_at"])
 
 
 class Inspection(models.Model):
@@ -52,3 +62,9 @@ class Inspection(models.Model):
             models.Index(fields=["inspector", "status"]),
             models.Index(fields=["created_at"]),
         ]
+
+    def increment_version(self):
+        """Increment version for optimistic locking"""
+        self.version = models.F("version") + 1
+        self.save(update_fields=["version"])
+        self.refresh_from_db()
