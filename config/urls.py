@@ -3,8 +3,9 @@ from django.urls import path, include
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/auth/", include("apps.authentication.urls")),
-    path("api/", include("apps.inspections.urls")),
-    path("api/photos/", include("apps.photos.urls")),
-    path("api/sync/", include("apps.sync.urls")),
+    # API v1
+    path("api/v1/auth/", include("apps.authentication.urls")),
+    path("api/v1/", include("apps.inspections.urls")),
+    path("api/v1/photos/", include("apps.photos.urls")),
+    path("api/v1/sync/", include("apps.sync.urls")),
 ]

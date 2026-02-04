@@ -1,39 +1,48 @@
 from pathlib import Path
-from decouple import config
-from django.core.management.utils import get_random_secret_key
+from decouple import config, UndefinedValueError
+from django.core.exceptions import ImproperlyConfigured
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Validate required env vars at startup
+REQUIRED_ENV_VARS = [
+    "DJANGO_SECRET_KEY",
+    "CLOUDINARY_CLOUD_NAME",
+    "CLOUDINARY_API_KEY",
+    "CLOUDINARY_API_SECRET",
+]
+
+missing_vars = []
+for var in REQUIRED_ENV_VARS:
+    try:
+        config(var)
+    except UndefinedValueError:
+        missing_vars.append(var)
+
+if missing_vars:
+    raise ImproperlyConfigured(
+        f"Missing required environment variables: {', '.join(missing_vars)}\n" f"Please set these in your .env file or environment."
+    )
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config("DJANGO_SECRET_KEY", default=get_random_secret_key(), cast=str)
+SECRET_KEY = config("DJANGO_SECRET_KEY", cast=str)
+DEBUG = config("DJANGO_DEBUG", default=False, cast=bool)
 
-DEBUG = config("DJANGO_DEBUG", default=True, cast=bool)
 
-AUTH_USER_MODEL = "authentication.User"
+ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1,192.168.1.101", cast=lambda v: [s.strip() for s in v.split(",")])
 
-ALLOWED_HOSTS = [
-    "localhost",
-    "127.0.0.1",
-    "[::1]",
-]
+CORS_ALLOWED_ORIGINS = config(
+    "CORS_ALLOWED_ORIGINS", default="http://localhost:3000, http://192.168.1.101:8000", cast=lambda v: [s.strip() for s in v.split(",")]
+)
+
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
 
-if DEBUG:
-    ALLOWED_HOSTS = ["*"]
-
-
-# CORS_ALLOWED_ORIGINS = [
-#     "http://localhost:3000",
-#     "http://127.0.0.1:3000",
-# ]
-
-
-# Application definition
+AUTH_USER_MODEL = "authentication.User"
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -50,6 +59,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     # Local apps
+    "apps.core",
     "apps.authentication",
     "apps.inspections",
     "apps.photos",
@@ -85,6 +95,8 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.StandardResultsSetPagination",
+    "PAGE_SIZE": 20,
 }
 
 from datetime import timedelta
@@ -92,7 +104,7 @@ from datetime import timedelta
 SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=6),
+    "ACCESS_TOKEN_LIFETIME": timedelta(seconds=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
 }
 
@@ -115,11 +127,15 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "ENGINE": config("DATABASE_ENGINE", default="django.db.backends.sqlite3"),
+        "NAME": config("DATABASE_NAME", default=str(BASE_DIR / "db.sqlite3")),
+        "USER": config("DATABASE_USER", default=""),
+        "PASSWORD": config("DATABASE_PASSWORD", default=""),
+        "HOST": config("DATABASE_HOST", default=""),
+        "PORT": config("DATABASE_PORT", default=""),
+        "OPTIONS": {"connect_timeout": 10} if config("DATABASE_ENGINE", default="").endswith("postgresql") else {},
     }
 }
 
@@ -159,8 +175,110 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# For production with CDN
+if not DEBUG:
+    STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+LOGGING = {
+    "version": 1,
+    "formatters": {
+        "verbose": {
+            "format": "{levelname} {asctime} {module} {process:d} {thread:d} {message}",
+            "style": "{",
+        },
+        "simple": {
+            "format": "{levelname} {asctime} {message}",
+            "style": "{",
+        },
+    },
+    "filters": {
+        "require_debug_false": {
+            "()": "django.utils.log.RequireDebugFalse",
+        },
+        "require_debug_true": {
+            "()": "django.utils.log.RequireDebugTrue",
+        },
+    },
+    "handlers": {
+        # Console output
+        "console": {
+            "level": "INFO",
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+        # Main log file
+        "file": {
+            "level": "INFO",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": BASE_DIR / "logs" / "django.log",
+            "maxBytes": 1024 * 1024 * 10,  # 10 MB
+            "backupCount": 5,
+            "formatter": "verbose",
+        },
+        # Error log file
+        "error_file": {
+            "level": "ERROR",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": BASE_DIR / "logs" / "errors.log",
+            "maxBytes": 1024 * 1024 * 10,  # 10 MB
+            "backupCount": 5,
+            "formatter": "verbose",
+        },
+        # Sync operations log
+        "sync_file": {
+            "level": "INFO",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": BASE_DIR / "logs" / "sync.log",
+            "maxBytes": 1024 * 1024 * 5,  # 5 MB
+            "backupCount": 3,
+            "formatter": "verbose",
+        },
+    },
+    "loggers": {
+        # Root logger
+        "": {
+            "handlers": ["console", "file", "error_file"],
+            "level": "INFO",
+        },
+        # Django
+        "django": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        # Database queries (only in DEBUG mode)
+        "django.db.backends": {
+            "handlers": ["console"],
+            "level": "DEBUG" if DEBUG else "INFO",
+            "propagate": False,
+        },
+        # Your apps
+        "apps.inspections": {
+            "handlers": ["console", "file", "error_file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "apps.sync": {
+            "handlers": ["console", "sync_file", "error_file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "apps.photos": {
+            "handlers": ["console", "file", "error_file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "apps.authentication": {
+            "handlers": ["console", "file", "error_file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}

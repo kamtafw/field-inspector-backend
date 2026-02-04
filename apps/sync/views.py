@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django_ratelimit.decorators import ratelimit
 
 from .models import SyncOperation
 from .serializers import BatchSyncRequestSerializer, BatchSyncResponseSerializer, SyncOperationSerializer
@@ -23,9 +24,11 @@ class SyncOperationViewSet(viewsets.ReadOnlyModelViewSet):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@ratelimit(key="user", rate="20/m", method="POST")
 def batch_sync(request):
     """
     Process a batch of sync operations
+    Rate limited to 20 requests per minute per user
 
     POST /api/sync/batch/
     {
@@ -39,6 +42,12 @@ def batch_sync(request):
         ]
     }
     """
+
+    if getattr(request, "limited", False):
+        return Response(
+            {"error": "Rate limited exceeded", "detail": "Maximum 20 batch sync requests per minute. Please try again later."},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
 
     serializer = BatchSyncRequestSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)

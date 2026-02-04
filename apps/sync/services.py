@@ -1,5 +1,5 @@
 import logging
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from .models import SyncOperation, ConflictRecord
 from apps.inspections.services import InspectionService, ConflictError
 from apps.inspections.serializers import CreateInspectionSerializer, UpdateInspectionSerializer
@@ -31,15 +31,29 @@ class IdempotencyService:
     @staticmethod
     @transaction.atomic
     def record(idempotency_key: str, operation_type: str, entity_id: str, user, result: dict):
-        """Record a processed operation"""
-        SyncOperation.objects.create(
-            idempotency_key=idempotency_key,
-            operation_type=operation_type,
-            entity_id=entity_id,
-            user=user,
-            result=result,
-        )
-        logger.info(f"Recorded operation {operation_type} with key {idempotency_key}")
+        """Record a processed operation - atomic to prevent race conditions"""
+        try:
+            operation, created = SyncOperation.objects.get_or_create(
+                idempotency_key=idempotency_key,
+                defaults={
+                    "operation_type": operation_type,
+                    "entity_id": entity_id,
+                    "user": user,
+                    "result": result,
+                },
+            )
+
+            if not created:
+                logger.warning(f"Idempotency key {idempotency_key} already exists - returning cached result")
+                return operation.result
+
+            logger.info(f"Recorded operation {operation_type} with key {idempotency_key}")
+            return result
+
+        except IntegrityError:
+            logger.warning(f"Race condition detected for key {idempotency_key} - fetching existing")
+            operation = SyncOperation.objects.get(idempotency_key=idempotency_key)
+            return operation.result
 
     @staticmethod
     def exists(idempotency_key: str) -> bool:

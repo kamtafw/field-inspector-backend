@@ -25,6 +25,8 @@ class SyncOperation(models.Model):
         indexes = [
             models.Index(fields=["idempotency_key"]),
             models.Index(fields=["entity_id"]),
+            models.Index(fields=["user", "processed_at"]),
+            models.Index(fields=["operation_type", "processed_at"]),
         ]
 
     def __str__(self):
@@ -60,6 +62,7 @@ class ConflictRecord(models.Model):
         indexes = [
             models.Index(fields=["inspection"]),
             models.Index(fields=["resolved"]),
+            models.Index(fields=["resolved", "created_at"]),
         ]
 
     def __str__(self):

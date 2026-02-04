@@ -3,6 +3,7 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,9 @@ class CloudinaryService:
     """
 
     def __init__(self):
+        if not settings.CLOUDINARY_STORAGE.get("API_SECRET"):
+            raise ImproperlyConfigured("Cloudinary API_SECRET must be set")
+
         cloudinary.config(
             cloud_name=settings.CLOUDINARY_STORAGE["CLOUD_NAME"],
             api_key=settings.CLOUDINARY_STORAGE["API_KEY"],

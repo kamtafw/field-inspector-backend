@@ -2,6 +2,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, action, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from apps.inspections.models import Inspection
@@ -64,28 +65,40 @@ def confirm_upload(request):
     serializer.is_valid(raise_exception=True)
 
     inspection_id = serializer.validated_data["inspection_id"]
-    cloudinary_public_id = serializer.validated_data["cloudinary_public_id"]
-    cloudinary_url = serializer.validated_data["cloudinary_url"]
-    file_size = serializer.validated_data["file_size"]
-    width = serializer.validated_data.get("width")
-    height = serializer.validated_data.get("height")
 
-    # verify inspection exists and user has access
-    inspection = get_object_or_404(Inspection, id=inspection_id, inspector=request.user)
+    with transaction.atomic():
+        inspection = get_object_or_404(
+            Inspection.objects.select_for_update(),
+            id=inspection_id,
+            inspector=request.user,
+            is_deleted=False,
+        )
 
-    # verify image exists in Cloudinary
-    if not cloudinary_service.verify_upload(cloudinary_public_id):
-        return Response({"error": "Upload not found in Cloudinary"}, status=status.HTTP_400_BAD_REQUEST)
+        if inspection.is_deleted:
+            return Response({"error": "Cannot upload photos to deleted inspection"}, status=status.HTTP_410_GONE)
 
-    # create Photo record
-    photo = Photo.objects.create(
-        inspection=inspection,
-        cloudinary_public_id=cloudinary_public_id,
-        cloudinary_url=cloudinary_url,
-        file_size=file_size,
-        width=width,
-        height=height,
-    )
+        if inspection.status == "conflict":
+            return Response({"error": "Cannot upload photos to conflicted inspection"}, status=status.HTTP_409_CONFLICT)
+
+        cloudinary_public_id = serializer.validated_data["cloudinary_public_id"]
+        cloudinary_url = serializer.validated_data["cloudinary_url"]
+        file_size = serializer.validated_data["file_size"]
+        width = serializer.validated_data.get("width")
+        height = serializer.validated_data.get("height")
+
+        # verify image exists in Cloudinary
+        if not cloudinary_service.verify_upload(cloudinary_public_id):
+            return Response({"error": "Upload not found in Cloudinary"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # create Photo record
+        photo = Photo.objects.create(
+            inspection=inspection,
+            cloudinary_public_id=cloudinary_public_id,
+            cloudinary_url=cloudinary_url,
+            file_size=file_size,
+            width=width,
+            height=height,
+        )
 
     photo_serializer = PhotoSerializer(photo)
     return Response(photo_serializer.data, status=status.HTTP_201_CREATED)

@@ -3,8 +3,13 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
+from django.utils.http import http_date
+from django.views.decorators.http import condition
+from django.utils.decorators import method_decorator
 from django.core.exceptions import ValidationError
+from django_ratelimit.decorators import ratelimit
 
 from .models import Inspection, InspectionTemplate
 from .serializers import InspectionSerializer, CreateInspectionSerializer, UpdateInspectionSerializer, InspectionTemplateSerializer
@@ -12,14 +17,41 @@ from .services import InspectionService, ConflictError
 from apps.sync.models import ConflictRecord
 
 
+def get_templates_etag(request, *args, **kwargs):
+    """Generate ETag based on template update"""
+    latest = InspectionTemplate.objects.filter(is_active=True).aggregate(Max("updated_at"))["updated_at__max"]
+
+    if latest:
+        return latest.isoformat()
+    return "no-templates"
+
+
 class InspectionTemplateViewSet(viewsets.ModelViewSet):
-    """Read-only viewset for inspection templates"""
+    """Read-only viewset for inspection templates with ETag caching"""
 
     serializer_class = InspectionTemplateSerializer
     permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "head", "options"]
 
     def get_queryset(self):
         return InspectionTemplate.objects.filter(is_active=True)
+
+    @condition(
+        etag_func=lambda request, *args, **kwargs: (
+            InspectionTemplate.objects.aggregate(Max("updated_at"))["updated_at__max"].isoformat() if InspectionTemplate.objects.exists() else None
+        )
+    )
+    @method_decorator(condition(etag_func=get_templates_etag))
+    def list(self, request, *args, **kwargs):
+        """
+        List all active templates with ETag caching
+        Returns 304 Not Modified if client ETag matches
+        """
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        """Retrieve single template"""
+        return super().retrieve(request, *args, **kwargs)
 
 
 class InspectionViewSet(viewsets.ModelViewSet):
@@ -29,10 +61,17 @@ class InspectionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        qs = Inspection.objects.all()
+
+        # prefetch related data to avoid N+1 queries
+        qs = qs.select_related("inspector", "approved_by", "template")
+        qs = qs.prefetch_related("photos")
+
         # managers see all, inspectors see only their own
         if hasattr(user, "role") and user.role == "manager":
-            return Inspection.objects.all()
-        return Inspection.objects.filter(inspector=user)
+            return qs
+
+        return qs.filter(inspector=user)
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -49,12 +88,19 @@ class InspectionViewSet(viewsets.ModelViewSet):
 
         return obj
 
+    @method_decorator(ratelimit(key="user", rate="100/h", method="POST"))
     @transaction.atomic
     def create(self, request):
         """
         Create new inspection
         Handles idempotency check and optimistic locking
         """
+
+        if getattr(request, "limited", False):
+            return Response(
+                {"error": "Rate limited exceeded", "detail": "Maximum 100 inspections per hour. Please try again later."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -88,12 +134,20 @@ class InspectionViewSet(viewsets.ModelViewSet):
         except ValidationError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+    @method_decorator(ratelimit(key="user", rate="200/h", method=["PUT", "PATCH"]))
     @transaction.atomic
     def update(self, request, pk=None):
         """
         Update inspection with optimistic locking
         Returns 409 Conflict if version mismatch
         """
+
+        if getattr(request, "limited", False):
+            return Response(
+                {"error": "Rate limit exceeded", "detail": "Maximum 200 updates per hour. Please try again later."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
         inspection = self.get_object()
         serializer = self.get_serializer(inspection, data=request.data, partial=False)
         serializer.is_valid(raise_exception=True)
@@ -180,6 +234,23 @@ class InspectionViewSet(viewsets.ModelViewSet):
 
         except Inspection.DoesNotExist:
             return Response({"error": "Inspection not found"}, status=status.HTTP_400_BAD_REQUEST)
+
+    @transaction.atomic
+    def destroy(self, request, pk=None):
+        """
+        Soft delete an inspection
+        Only drafts can be deleted
+        """
+        inspection = self.get_object()
+
+        if inspection.status != "draft":
+            return Response(
+                {"error": "Cannot delete inspection", "detail": "Only draft inspections can be deleted"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        inspection.soft_delete(user=request.user)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["get"])
     def check_version(self, request, pk=None):

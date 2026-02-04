@@ -218,3 +218,7 @@ __marimo__/
 APICOVERAGE.md
 
 tests
+
+# Logs
+logs/
+*.log

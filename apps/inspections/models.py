@@ -28,6 +28,11 @@ class InspectionTemplate(models.Model):
         self.save(update_fields=["is_active", "deleted_at"])
 
 
+class InspectionManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
+
+
 class Inspection(models.Model):
     STATUS_CHOICES = (
         ("draft", "Draft"),
@@ -55,16 +60,41 @@ class Inspection(models.Model):
     submitted_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        db_table = "inspections"
-        ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["inspector", "status"]),
-            models.Index(fields=["created_at"]),
-        ]
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(User, null=True, blank=True, related_name="deleted_inspections", on_delete=models.SET_NULL)
 
     def increment_version(self):
         """Increment version for optimistic locking"""
         self.version = models.F("version") + 1
         self.save(update_fields=["version"])
         self.refresh_from_db()
+
+    def soft_delete(self, user):
+        """Soft delete inspection"""
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.deleted_by = user
+        self.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+    def restore(self):
+        """Restore a soft-deleted inspection"""
+        self.is_deleted = False
+        self.deleted_at = None
+        self.deleted_by = None
+        self.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+    # override default queryset to exclude deleted
+    objects = InspectionManager()
+    all_objects = models.Manager()
+
+    class Meta:
+        db_table = "inspections"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["inspector", "status"]),
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["template", "status"]),
+            models.Index(fields=["submitted_at"]),
+            models.Index(fields=["is_deleted", "status"]),
+        ]
