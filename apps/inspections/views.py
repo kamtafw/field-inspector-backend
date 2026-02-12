@@ -36,11 +36,6 @@ class InspectionTemplateViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return InspectionTemplate.objects.filter(is_active=True)
 
-    @condition(
-        etag_func=lambda request, *args, **kwargs: (
-            InspectionTemplate.objects.aggregate(Max("updated_at"))["updated_at__max"].isoformat() if InspectionTemplate.objects.exists() else None
-        )
-    )
     @method_decorator(condition(etag_func=get_templates_etag))
     def list(self, request, *args, **kwargs):
         """
