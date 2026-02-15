@@ -31,10 +31,10 @@ SECRET_KEY = config("DJANGO_SECRET_KEY", cast=str)
 DEBUG = config("DJANGO_DEBUG", default=False, cast=bool)
 
 
-ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1,192.168.1.101", cast=lambda v: [s.strip() for s in v.split(",")])
+ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1,192.168.0.101", cast=lambda v: [s.strip() for s in v.split(",")])
 
 CORS_ALLOWED_ORIGINS = config(
-    "CORS_ALLOWED_ORIGINS", default="http://localhost:3000, http://192.168.1.101:8000", cast=lambda v: [s.strip() for s in v.split(",")]
+    "CORS_ALLOWED_ORIGINS", default="http://localhost:3000, http://192.168.0.101:8000", cast=lambda v: [s.strip() for s in v.split(",")]
 )
 
 CSRF_TRUSTED_ORIGINS = [
@@ -104,8 +104,8 @@ from datetime import timedelta
 SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=2),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=6),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=2),
 }
 
 ROOT_URLCONF = "config.urls"

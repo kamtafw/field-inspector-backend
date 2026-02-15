@@ -87,6 +87,7 @@ class BatchSyncService:
                     data=operation["data"],
                     user=user,
                 )
+
                 results.append(
                     {
                         "index": idx,
@@ -152,6 +153,7 @@ class BatchSyncService:
                     }
                 )
         logger.info(f"Batch processed: {sum(1 for r in results if r['success'])} succeeded, " f"{sum(1 for r in results if not r['success'])} failed")
+
         return results
 
     @staticmethod

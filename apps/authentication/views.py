@@ -147,12 +147,12 @@ def login_view(request):
     password = request.data.get("password")
 
     if not email or not password:
-        return Response({"error": "Email and password are required."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"error": "Email and password are required"}, status=status.HTTP_400_BAD_REQUEST)
 
     user = authenticate(request, email=email, password=password)
 
     if not user:
-        return Response({"error": "Invalid credentials."}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response({"error": "Invalid email or password"}, status=status.HTTP_401_UNAUTHORIZED)
 
     refresh = RefreshToken.for_user(user)
     return Response(

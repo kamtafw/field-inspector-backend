@@ -49,10 +49,10 @@ def batch_sync(request):
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
 
-    serializer = BatchSyncRequestSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
+    request_serializer = BatchSyncRequestSerializer(data=request.data)
+    request_serializer.is_valid(raise_exception=True)
 
-    operations = serializer.validated_data["operations"]
+    operations = request_serializer.validated_data["operations"]
 
     if len(operations) > 100:
         return Response({"error": "Maximum 100 operations per batch"}, status=status.HTTP_400_BAD_REQUEST)
@@ -64,6 +64,6 @@ def batch_sync(request):
         has_failures = any(not r["success"] for r in results)
         status_code = status.HTTP_207_MULTI_STATUS if has_failures else status.HTTP_200_OK
 
-        return Response(response_serializer, status=status_code)
+        return Response(response_serializer.data, status=status_code)
     except Exception as e:
         return Response({"error": "Batch sync failed", "detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
