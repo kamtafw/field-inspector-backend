@@ -27,6 +27,7 @@ class InspectionTemplateSerializer(serializers.ModelSerializer):
 class InspectionSerializer(serializers.ModelSerializer):
     """Full inspection with checklist items and photos"""
 
+    template_id = serializers.UUIDField(source="template.id", read_only=True)
     inspector = InspectorSerializer()
     photos = PhotoSerializer(many=True, read_only=True)
 
@@ -34,7 +35,7 @@ class InspectionSerializer(serializers.ModelSerializer):
         model = Inspection
         fields = [
             "id",
-            "template",
+            "template_id",
             "inspector",
             "facility_name",
             "facility_address",
