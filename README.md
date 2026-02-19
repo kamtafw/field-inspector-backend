@@ -13,7 +13,7 @@ The backend is designed around three core principles:
 
 ## Architecture Summary
 
-```stl
+```scss
 Mobile Clients (React Native)
               │
               ▼
