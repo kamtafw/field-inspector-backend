@@ -26,14 +26,20 @@ services:
       - key: DJANGO_SETTINGS_MODULE
         value: config.settings_production
 
+      - key: ALLOWED_HOSTS
+        value: ".onrender.com"
+
       - key: SECRET_KEY
         generateValue: true
+      
+      - key: DJANGO_SECRET_KEY
+        fromService:
+          type: web
+          name: vantage-api
+          envVarKey: SECRET_KEY
 
       - key: DEBUG
         value: "False"
-
-      - key: ALLOWED_HOSTS
-        value: "vantage-api.onrender.com"
 
       - key: PORT
         value: "8000"
