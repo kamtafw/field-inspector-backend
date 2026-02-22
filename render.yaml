@@ -65,6 +65,12 @@ services:
         value: "WARNING"
 
     autoDeploy: true
+  
+  - type: redis
+    name: vantage-redis
+    plan: free
+    region: oregon
+    ipAllowList: []
 
 databases:
   - name: vantage-db
@@ -73,7 +79,3 @@ databases:
     plan: free
     region: oregon
 
-redis:
-  - name: vantage-redis
-    plan: free
-    region: oregon
