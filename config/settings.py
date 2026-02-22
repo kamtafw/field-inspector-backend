@@ -26,7 +26,6 @@ if missing_vars:
         f"Missing required environment variables: {', '.join(missing_vars)}\n" f"Please set these in your .env file or environment."
     )
 
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = config("DJANGO_SECRET_KEY", cast=str)
 DEBUG = config("DJANGO_DEBUG", default=False, cast=bool)
 
