@@ -73,7 +73,7 @@ databases:
     plan: free
     region: oregon
 
+redis:
   - name: vantage-redis
     plan: free
     region: oregon
-    
