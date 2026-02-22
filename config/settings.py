@@ -26,8 +26,8 @@ if missing_vars:
         f"Missing required environment variables: {', '.join(missing_vars)}\n" f"Please set these in your .env file or environment."
     )
 
-SECRET_KEY = config("DJANGO_SECRET_KEY", cast=str)
-DEBUG = config("DJANGO_DEBUG", default=False, cast=bool)
+SECRET_KEY = config("SECRET_KEY", cast=str)
+DEBUG = config("DEBUG", default=False, cast=bool)
 
 
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1,192.168.0.101", cast=lambda v: [s.strip() for s in v.split(",")])
