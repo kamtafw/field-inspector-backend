@@ -28,7 +28,7 @@ def create_superuser(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("authentication", "0001_initial"),
+        ("authentication", "0002_create_superuser"),
     ]
 
     operations = [
